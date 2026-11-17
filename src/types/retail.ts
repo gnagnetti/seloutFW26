@@ -1,6 +1,6 @@
 export type Lang = 'it' | 'ru';
 
-export type GroupId = 'bosco' | 'irina' | 'smykov';
+export type GroupId = 'bosco' | 'irina' | 'smykov' | 'pioneer';
 
 export interface GroupRecord {
   id: GroupId;
@@ -51,9 +51,24 @@ export interface StoreBreakdownRow {
   pct: number;
 }
 
+export interface ColorBreakdownRow {
+  color: string;
+  cc: string;
+  img: string | null;
+  ordered: number;
+  sold: number;
+  revenue: number;
+  pct: number;
+}
+
 export interface AggregatedProductItem extends ProductItem {
   storeCount: number;
   storeBreakdown: StoreBreakdownRow[];
+  colorBreakdown?: ColorBreakdownRow[];
+  searchMeta?: string;
+  realizedRevenue?: number;
+  potentialRevenue?: number;
+  wholesaleValue?: number;
 }
 
 export interface UnifiedDatabase {

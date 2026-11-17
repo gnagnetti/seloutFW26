@@ -138,47 +138,96 @@ function parseNum(raw: unknown, fallback = 0): number {
 export function aggregateModels(
   items: ProductItem[],
   storesById: Map<string, StoreRecord>,
-  allStoresLabel: string
+  allStoresLabel: string,
+  colorsLabel = 'colori',
+  storesLabel = 'negozi',
+  allStoresSelected = false
 ): AggregatedProductItem[] {
   const grouped = new Map<
     string,
     {
       base: ProductItem;
+      baseScore: number;
       poSet: Set<string>;
       sizes: Record<string, [number, number]>;
       byStore: Map<string, { ordered: number; sold: number; revenue: number }>;
+      byColor: Map<
+        string,
+        {
+          color: string;
+          cc: string;
+          img: string | null;
+          ordered: number;
+          sold: number;
+          revenue: number;
+        }
+      >;
+      searchTokens: Set<string>;
+      realizedRevenue: number;
+      potentialRevenue: number;
+      wholesaleValue: number;
+      totalOrderedUnits: number;
     }
   >();
 
   for (const item of items) {
-    const key = `${item.name.toUpperCase()}|${item.cc || item.color.toUpperCase()}`;
+    const key = normalizeStyleKey(item.name) || item.num || `${item.name}|${item.cc}`;
+    let itemOrd = 0;
+    let itemSld = 0;
+    for (const [o, s] of Object.values(item.sizes)) {
+      itemOrd += o;
+      itemSld += s;
+    }
+
     let entry = grouped.get(key);
     if (!entry) {
       entry = {
         base: { ...item },
+        baseScore: item.img ? itemOrd + 1000 : itemOrd,
         poSet: new Set<string>(),
         sizes: {},
         byStore: new Map(),
+        byColor: new Map(),
+        searchTokens: new Set<string>(),
+        realizedRevenue: 0,
+        potentialRevenue: 0,
+        wholesaleValue: 0,
+        totalOrderedUnits: 0,
       };
       grouped.set(key, entry);
+    } else {
+      const score = item.img ? itemOrd + 1000 : itemOrd;
+      if (score > entry.baseScore && item.img) {
+        entry.base.img = item.img;
+        entry.baseScore = score;
+      }
+      if (!entry.base.img && item.img) entry.base.img = item.img;
+      if (!entry.base.fab && item.fab) entry.base.fab = item.fab;
+      if (!entry.base.num && item.num) entry.base.num = item.num;
     }
 
-    if (!entry.base.img && item.img) entry.base.img = item.img;
-    if (!entry.base.fab && item.fab) entry.base.fab = item.fab;
-    if (!entry.base.num && item.num) entry.base.num = item.num;
+    entry.searchTokens.add(item.name);
+    if (item.num) entry.searchTokens.add(item.num);
+    if (item.color) entry.searchTokens.add(item.color);
+    if (item.cc) entry.searchTokens.add(item.cc);
+    if (item.fab) entry.searchTokens.add(item.fab);
+    if (item.storeName) entry.searchTokens.add(item.storeName);
+    if (item.groupName) entry.searchTokens.add(item.groupName);
 
     for (const po of item.po.split(',').map((p) => p.trim()).filter(Boolean)) {
       entry.poSet.add(po);
     }
 
-    let storeOrd = 0;
-    let storeSld = 0;
     for (const [sz, [o, s]] of Object.entries(item.sizes)) {
       const prev = entry.sizes[sz] ?? [0, 0];
       entry.sizes[sz] = [prev[0] + o, prev[1] + s];
-      storeOrd += o;
-      storeSld += s;
     }
+
+    const rev = itemSld * item.rtl;
+    entry.realizedRevenue += rev;
+    entry.potentialRevenue += itemOrd * item.rtl;
+    entry.wholesaleValue += itemOrd * item.whs;
+    entry.totalOrderedUnits += itemOrd;
 
     const prevStore = entry.byStore.get(item.storeId) ?? {
       ordered: 0,
@@ -186,12 +235,32 @@ export function aggregateModels(
       revenue: 0,
     };
     entry.byStore.set(item.storeId, {
-      ordered: prevStore.ordered + storeOrd,
-      sold: prevStore.sold + storeSld,
-      revenue: prevStore.revenue + storeSld * item.rtl,
+      ordered: prevStore.ordered + itemOrd,
+      sold: prevStore.sold + itemSld,
+      revenue: prevStore.revenue + rev,
+    });
+
+    const colorKey = item.cc || item.color.toUpperCase() || 'DEFAULT';
+    const prevColor = entry.byColor.get(colorKey) ?? {
+      color: item.color,
+      cc: item.cc,
+      img: item.img,
+      ordered: 0,
+      sold: 0,
+      revenue: 0,
+    };
+    if (!prevColor.img && item.img) prevColor.img = item.img;
+    entry.byColor.set(colorKey, {
+      color: prevColor.color || item.color,
+      cc: prevColor.cc || item.cc,
+      img: prevColor.img,
+      ordered: prevColor.ordered + itemOrd,
+      sold: prevColor.sold + itemSld,
+      revenue: prevColor.revenue + rev,
     });
   }
 
+  const totalStoresCount = storesById.size;
   const result: AggregatedProductItem[] = [];
   for (const entry of grouped.values()) {
     const storeBreakdown = Array.from(entry.byStore.entries())
@@ -210,14 +279,46 @@ export function aggregateModels(
       })
       .sort((a, b) => b.sold - a.sold || b.ordered - a.ordered);
 
+    const colorBreakdown = Array.from(entry.byColor.values())
+      .map((c) => ({
+        ...c,
+        pct: getSellOutPct(c.sold, c.ordered),
+      }))
+      .sort((a, b) => b.sold - a.sold || b.ordered - a.ordered);
+
     const storeCount = storeBreakdown.length;
+    const colorCodes = colorBreakdown.map((c) => c.cc || c.color).filter(Boolean);
+    const colorSummary =
+      colorBreakdown.length <= 1
+        ? colorBreakdown[0]?.color ?? entry.base.color
+        : `${colorBreakdown.length} ${colorsLabel} (${colorCodes.join(', ')})`;
+
+    const avgRtl =
+      entry.totalOrderedUnits > 0
+        ? entry.potentialRevenue / entry.totalOrderedUnits
+        : entry.base.rtl;
+    const avgWhs =
+      entry.totalOrderedUnits > 0
+        ? entry.wholesaleValue / entry.totalOrderedUnits
+        : entry.base.whs;
+
+    const storeLabel =
+      storeCount === 1
+        ? storeBreakdown[0].storeName
+        : allStoresSelected
+          ? storeCount === totalStoresCount
+            ? `${allStoresLabel} (${storeCount})`
+            : `${allStoresLabel} (${storeCount}/${totalStoresCount})`
+          : `${storeCount} ${storesLabel}`;
+
     result.push({
       ...entry.base,
+      color: colorSummary,
+      cc: colorBreakdown.length === 1 ? colorBreakdown[0].cc : '',
+      rtl: avgRtl,
+      whs: avgWhs,
       storeId: storeCount === 1 ? storeBreakdown[0].storeId : 'multi',
-      storeName:
-        storeCount === 1
-          ? storeBreakdown[0].storeName
-          : `${allStoresLabel} (${storeCount})`,
+      storeName: storeLabel,
       groupName:
         new Set(storeBreakdown.map((s) => s.groupName)).size === 1
           ? storeBreakdown[0].groupName
@@ -226,6 +327,11 @@ export function aggregateModels(
       sizes: entry.sizes,
       storeCount,
       storeBreakdown,
+      colorBreakdown,
+      searchMeta: Array.from(entry.searchTokens).join(' '),
+      realizedRevenue: entry.realizedRevenue,
+      potentialRevenue: entry.potentialRevenue,
+      wholesaleValue: entry.wholesaleValue,
     });
   }
 
@@ -930,6 +1036,31 @@ export function reconcileStoreSellOut(
     return withAnyRemaining ?? candidates[0];
   };
 
+  const allocateToItem = (target: ProductItem, sz: string, qty: number) => {
+    let remaining = qty;
+    const orderedSizes = Object.keys(target.sizes);
+    // If file reported 'U' (Unica) on a multi-size garment, distribute into ordered sizes with stock first
+    if (sz === 'U' && orderedSizes.length > 0 && !target.sizes['U']) {
+      for (const sKey of orderedSizes) {
+        if (remaining <= 0) break;
+        const [o, s] = target.sizes[sKey];
+        if (o > s) {
+          const take = Math.min(remaining, o - s);
+          target.sizes[sKey] = [o, s + take];
+          remaining -= take;
+        }
+      }
+      if (remaining > 0) {
+        const firstKey = orderedSizes[0];
+        const prev = target.sizes[firstKey];
+        target.sizes[firstKey] = [prev[0], prev[1] + remaining];
+      }
+      return;
+    }
+    const prev = target.sizes[sz] ?? [0, 0];
+    target.sizes[sz] = [prev[0], prev[1] + remaining];
+  };
+
   let matchedUnits = 0;
   let unmatchedUnits = 0;
   const matchedSkus = new Set<string>();
@@ -941,25 +1072,58 @@ export function reconcileStoreSellOut(
     const cc = normCc(line.colorCode);
     const sz = line.size || 'U';
 
-    let target: ProductItem | null = null;
-
     if (cc) {
-      target =
+      const target =
         pickBestCandidate(exactMap.get(`${ns}|${cc}`), sz) ??
         pickBestCandidate(compactMap.get(`${cs}|${cc}`), sz) ??
         pickBestCandidate(baseMap.get(`${bs}|${cc}`), sz);
+      if (target) {
+        allocateToItem(target, sz, line.qty);
+        matchedUnits += line.qty;
+        matchedSkus.add(`${target.name.toUpperCase()}|${target.cc}`);
+        continue;
+      }
     }
 
-    if (!target) {
-      target =
-        pickBestCandidate(styleOnlyExact.get(ns), sz) ??
-        pickBestCandidate(styleOnlyCompact.get(cs), sz) ??
-        pickBestCandidate(styleOnlyBase.get(bs), sz);
-    }
+    const candidates =
+      styleOnlyExact.get(ns) ??
+      styleOnlyCompact.get(cs) ??
+      styleOnlyBase.get(bs);
 
-    if (target) {
-      const prev = target.sizes[sz] ?? [0, 0];
-      target.sizes[sz] = [prev[0], prev[1] + line.qty];
+    if (candidates && candidates.length > 1) {
+      // Distribute across colorways up to remaining stock when no colorCode was supplied
+      let rem = line.qty;
+      for (const cand of candidates) {
+        if (rem <= 0) break;
+        const pair = cand.sizes[sz];
+        if (pair && pair[0] > pair[1]) {
+          const take = Math.min(rem, pair[0] - pair[1]);
+          allocateToItem(cand, sz, take);
+          matchedSkus.add(`${cand.name.toUpperCase()}|${cand.cc}`);
+          rem -= take;
+        }
+      }
+      if (rem > 0) {
+        for (const cand of candidates) {
+          if (rem <= 0) break;
+          const avail = Math.max(getOrdered(cand) - getSold(cand), 0);
+          if (avail > 0) {
+            const take = Math.min(rem, avail);
+            allocateToItem(cand, sz, take);
+            matchedSkus.add(`${cand.name.toUpperCase()}|${cand.cc}`);
+            rem -= take;
+          }
+        }
+      }
+      if (rem > 0) {
+        const fallbackTarget = pickBestCandidate(candidates, sz)!;
+        allocateToItem(fallbackTarget, sz, rem);
+        matchedSkus.add(`${fallbackTarget.name.toUpperCase()}|${fallbackTarget.cc}`);
+      }
+      matchedUnits += line.qty;
+    } else if (candidates && candidates.length === 1) {
+      const target = candidates[0];
+      allocateToItem(target, sz, line.qty);
       matchedUnits += line.qty;
       matchedSkus.add(`${target.name.toUpperCase()}|${target.cc}`);
     } else {

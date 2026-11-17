@@ -65,7 +65,7 @@ export function ProductCard({ item, showStore, lang, onSelect }: ProductCardProp
         <span
           className={`absolute right-2.5 top-2.5 rounded px-2 py-0.5 text-[10px] font-bold tracking-wide ${TIER_STYLES[tier]}`}
         >
-          {tierLabel} · {Math.round(pct)}%
+          {tierLabel} · {pct.toFixed(1)}%
         </span>
       </div>
 

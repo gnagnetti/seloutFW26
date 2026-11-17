@@ -76,13 +76,17 @@ export function TableView({ items, showStore, lang, onSelect }: TableViewProps) 
                 <td className="px-3 py-2 text-right font-mono text-success font-medium">
                   {sld}
                 </td>
-                <td className="px-3 py-2 text-right font-mono">{pct.toFixed(0)}%</td>
+                <td className="px-3 py-2 text-right font-mono">{pct.toFixed(1)}%</td>
                 <td className="px-3 py-2 text-right font-mono">{formatEur(item.rtl)}</td>
                 <td className="px-3 py-2 text-right font-mono text-muted-foreground">
                   {formatEur(item.whs)}
                 </td>
                 <td className="px-3 py-2 text-right font-mono font-medium">
-                  {formatEur(sld * item.rtl)}
+                  {formatEur(
+                    'realizedRevenue' in item && item.realizedRevenue !== undefined
+                      ? item.realizedRevenue
+                      : sld * item.rtl
+                  )}
                 </td>
               </tr>
             );

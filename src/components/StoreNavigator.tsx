@@ -299,7 +299,11 @@ export function StoreNavigator({
       </div>
 
       {/* Store Cards Grid */}
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
+      <div
+        className={`mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 ${
+          visibleStores.length > 7 ? 'lg:grid-cols-5' : 'lg:grid-cols-7'
+        }`}
+      >
         {visibleStores.map((store, idx) => {
           const stats = storeStats.get(store.id) ?? { ordered: 0, matchedSold: 0 };
           const isSelected = selectedSet.has(store.id);

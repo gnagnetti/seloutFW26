@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Download,
   LayoutGrid,
+  Printer,
   Ruler,
   Search,
   Store,
@@ -46,10 +47,11 @@ import {
   type ParsedSellOutLine,
 } from './utils/analytics';
 import { t } from './utils/i18n';
+import { exportCatalogPdf } from './utils/pdfExport';
 
 const CUSTOM_GROUPS_KEY = 'ls-fw26-custom-store-groups-v1';
-const OVERRIDES_KEY = 'ls-fw26-store-overrides-v2';
-const LEGACY_OVERRIDES_KEY = 'ls-fw26-sellout-overrides-v1';
+const OVERRIDES_KEY = 'ls-fw26-store-overrides-v3';
+const STALE_OVERRIDE_KEYS = ['ls-fw26-store-overrides-v2', 'ls-fw26-sellout-overrides-v1'];
 
 interface StoreOverridesV2 {
   ordersByStore?: Record<string, ParsedJoorOrderRow[]>;
@@ -87,6 +89,7 @@ export default function App() {
     ProductItem | AggregatedProductItem | null
   >(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<{ done: number; total: number } | null>(null);
 
   const dict = t(lang);
 
@@ -100,6 +103,9 @@ export default function App() {
 
       if (applyOverrides) {
         try {
+          for (const staleKey of STALE_OVERRIDE_KEYS) {
+            localStorage.removeItem(staleKey);
+          }
           const rawOv = localStorage.getItem(OVERRIDES_KEY);
           if (rawOv) {
             const ov: StoreOverridesV2 = JSON.parse(rawOv);
@@ -182,16 +188,49 @@ export default function App() {
     return Array.from(set).sort();
   }, [scopedItems]);
 
+  const hasItemFilter =
+    filters.search.trim().length > 0 ||
+    filters.category !== 'all' ||
+    filters.tier !== 'all' ||
+    filters.po !== 'all';
+
+  const kpiItems = useMemo(() => {
+    if (!hasItemFilter) return scopedItems;
+    const q = filters.search.trim().toLowerCase();
+    return scopedItems.filter((item) => {
+      if (q) {
+        const hay = `${item.name} ${item.num} ${item.color} ${item.cc} ${item.fab} ${item.storeName} ${item.groupName}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (filters.category !== 'all' && item.cat !== filters.category) return false;
+      if (filters.tier !== 'all' && getTier(item) !== filters.tier) return false;
+      if (filters.po !== 'all') {
+        const pos = item.po.split(',').map((p) => p.trim());
+        if (!pos.includes(filters.po)) return false;
+      }
+      return true;
+    });
+  }, [scopedItems, filters, hasItemFilter]);
+
   const displayedItems = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
+    const allStoresSelected = Boolean(db && selectedStoreIds.length === db.stores.length);
     const baseList: (ProductItem | AggregatedProductItem)[] =
-      filters.aggregateModels && selectedStoreIds.length > 1
-        ? aggregateModels(scopedItems, storesById, dict.allStores)
+      filters.aggregateModels
+        ? aggregateModels(
+            scopedItems,
+            storesById,
+            dict.allStores,
+            dict.card.colorsCount,
+            dict.card.storesCount,
+            allStoresSelected
+          )
         : scopedItems;
 
     const filtered = baseList.filter((item) => {
       if (q) {
-        const hay = `${item.name} ${item.num} ${item.color} ${item.fab} ${item.storeName} ${item.groupName}`.toLowerCase();
+        const meta = 'searchMeta' in item && item.searchMeta ? item.searchMeta : '';
+        const hay = `${item.name} ${item.num} ${item.color} ${item.fab} ${item.storeName} ${item.groupName} ${meta}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       if (filters.category !== 'all' && item.cat !== filters.category) return false;
@@ -228,11 +267,14 @@ export default function App() {
       return getSold(b) - getSold(a);
     });
   }, [
+    db,
     scopedItems,
     filters,
     selectedStoreIds.length,
     storesById,
     dict.allStores,
+    dict.card.colorsCount,
+    dict.card.storesCount,
   ]);
 
   const activeScopeSummary = useMemo(() => {
@@ -362,8 +404,35 @@ export default function App() {
 
   const handleResetDatabase = () => {
     localStorage.removeItem(OVERRIDES_KEY);
-    localStorage.removeItem(LEGACY_OVERRIDES_KEY);
+    for (const staleKey of STALE_OVERRIDE_KEYS) {
+      localStorage.removeItem(staleKey);
+    }
     loadDatabase(false);
+  };
+
+  const handlePrintPdf = async () => {
+    if (pdfProgress || displayedItems.length === 0) return;
+    const filterParts: string[] = [];
+    if (filters.line !== 'all') filterParts.push(filters.line.replace('Fw 2026 - ', ''));
+    if (filters.category !== 'all') filterParts.push(filters.category);
+    if (filters.tier !== 'all') filterParts.push(dict.tiers[filters.tier]);
+    if (filters.po !== 'all') filterParts.push(`PO #${filters.po}`);
+    if (filters.search.trim()) filterParts.push(`"${filters.search.trim()}"`);
+
+    setPdfProgress({ done: 0, total: 0 });
+    try {
+      await exportCatalogPdf({
+        items: displayedItems,
+        viewMode,
+        scopeSummary: activeScopeSummary,
+        filterSummary: filterParts.join(' · '),
+        showStore: selectedStoreIds.length > 1 || filters.aggregateModels,
+        lang,
+        onProgress: (done, total) => setPdfProgress({ done, total }),
+      });
+    } finally {
+      setPdfProgress(null);
+    }
   };
 
   const navTabs: Array<[ViewMode, string, typeof LayoutGrid]> = [
@@ -541,8 +610,8 @@ export default function App() {
 
         {/* 6 KPI Summary Cards */}
         <KpiStrip
-          items={scopedItems}
-          unmatchedSold={unmatchedForScope}
+          items={kpiItems}
+          unmatchedSold={hasItemFilter ? 0 : unmatchedForScope}
           activeStoreCount={selectedStoreIds.length}
           lang={lang}
         />
@@ -642,24 +711,34 @@ export default function App() {
                   </select>
                 </label>
 
-                {selectedStoreIds.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFilters((f) => ({
-                        ...f,
-                        aggregateModels: !f.aggregateModels,
-                      }))
-                    }
-                    className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                      filters.aggregateModels
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border bg-background text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {dict.filters.aggregateToggle}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFilters((f) => ({
+                      ...f,
+                      aggregateModels: !f.aggregateModels,
+                    }))
+                  }
+                  className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    filters.aggregateModels
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {dict.filters.aggregateToggle}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={displayedItems.length === 0 || pdfProgress !== null}
+                  onClick={handlePrintPdf}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer tabular-nums"
+                >
+                  <Printer className="h-3.5 w-3.5 text-primary" />
+                  {pdfProgress
+                    ? `${dict.filters.printingPdf}${pdfProgress.total > 0 ? ` (${pdfProgress.done}/${pdfProgress.total})` : ''}`
+                    : dict.filters.printPdf}
+                </button>
 
                 <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                   {dict.filters.showing}{' '}

@@ -35,7 +35,14 @@ export function ProductModal({
   const pct = getSellOutPct(sold, ordered);
   const sizeEntries = sortSizeEntries(item.sizes);
 
-  // Build store breakdown across active scoped items for the same style + color
+  const isAggregatedModel = 'colorBreakdown' in item && (item.colorBreakdown?.length ?? 0) > 0;
+  const colorBreakdown = 'colorBreakdown' in item ? item.colorBreakdown ?? [] : [];
+  const realizedRevenue =
+    'realizedRevenue' in item && item.realizedRevenue !== undefined
+      ? item.realizedRevenue
+      : sold * item.rtl;
+
+  // Build store breakdown across active scoped items
   const breakdown =
     'storeBreakdown' in item && item.storeBreakdown.length > 0
       ? item.storeBreakdown
@@ -43,7 +50,7 @@ export function ProductModal({
           const matching = allScopedItems.filter(
             (x) =>
               x.name.toUpperCase() === item.name.toUpperCase() &&
-              (x.cc === item.cc || x.color.toUpperCase() === item.color.toUpperCase())
+              (isAggregatedModel || x.cc === item.cc || x.color.toUpperCase() === item.color.toUpperCase())
           );
           return matching.map((m) => {
             const st = storesById.get(m.storeId);
@@ -134,7 +141,7 @@ export function ProductModal({
               <div>
                 <div className="text-xs text-muted-foreground">{dict.table.revenue}</div>
                 <div className="mt-0.5 font-mono text-base font-semibold">
-                  {formatEur(sold * item.rtl)}
+                  {formatEur(realizedRevenue)}
                 </div>
               </div>
             </div>
@@ -151,6 +158,17 @@ export function ProductModal({
                 {item.po || 'Floor Stock'}
               </div>
             </div>
+
+            {(() => {
+              const hasSizeExcess = sizeEntries.some(([, [o, s]]) => s > o);
+              const hasStoreExcess = breakdown.some((b) => b.sold > b.ordered);
+              if (sold <= ordered && !hasSizeExcess && !hasStoreExcess) return null;
+              return (
+                <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+                  {dict.modal.transferNotice}
+                </div>
+              );
+            })()}
 
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -170,6 +188,7 @@ export function ProductModal({
                   <tbody>
                     {sizeEntries.map(([sz, [ord, sld]]) => {
                       const szPct = getSellOutPct(sld, ord);
+                      const extra = sld - ord;
                       return (
                         <tr key={sz} className="border-t border-border">
                           <td className="px-3 py-1.5 font-mono font-medium">{sz}</td>
@@ -177,10 +196,18 @@ export function ProductModal({
                           <td className="px-3 py-1.5 text-right font-mono text-success font-medium">
                             {sld}
                           </td>
-                          <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">
-                            {Math.max(ord - sld, 0)}
+                          <td
+                            className={`px-3 py-1.5 text-right font-mono ${
+                              extra > 0 ? 'text-primary font-semibold' : 'text-muted-foreground'
+                            }`}
+                          >
+                            {extra > 0 ? `0 (+${extra} ${dict.modal.excessTag})` : Math.max(ord - sld, 0)}
                           </td>
-                          <td className="px-3 py-1.5 text-right font-mono">
+                          <td
+                            className={`px-3 py-1.5 text-right font-mono ${
+                              extra > 0 ? 'text-primary font-semibold' : ''
+                            }`}
+                          >
                             {szPct.toFixed(0)}%
                           </td>
                         </tr>
@@ -190,6 +217,52 @@ export function ProductModal({
                 </table>
               </div>
             </div>
+
+            {colorBreakdown.length > 1 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {dict.modal.colorBreakdown}
+                </h3>
+                <div className="mt-2 overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full text-xs tabular-nums">
+                    <thead className="bg-muted text-left text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2">{dict.modal.color}</th>
+                        <th className="px-3 py-2 text-right">Sell-In</th>
+                        <th className="px-3 py-2 text-right">Sell-Out</th>
+                        <th className="px-3 py-2 text-right">%</th>
+                        <th className="px-3 py-2 text-right">{dict.table.revenue}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {colorBreakdown.map((c) => {
+                        const extra = c.sold - c.ordered;
+                        return (
+                          <tr key={c.cc || c.color} className="border-t border-border">
+                            <td className="px-3 py-1.5 font-medium">{c.color}</td>
+                            <td className="px-3 py-1.5 text-right font-mono">{c.ordered}</td>
+                            <td className="px-3 py-1.5 text-right font-mono text-success font-medium">
+                              {c.sold}
+                            </td>
+                            <td
+                              className={`px-3 py-1.5 text-right font-mono ${
+                                extra > 0 ? 'text-primary font-semibold' : ''
+                              }`}
+                            >
+                              {c.pct.toFixed(1)}%
+                              {extra > 0 ? ` (+${extra})` : ''}
+                            </td>
+                            <td className="px-3 py-1.5 text-right font-mono">
+                              {formatEur(c.revenue)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {breakdown.length > 0 && (
               <div>
@@ -209,22 +282,30 @@ export function ProductModal({
                       </tr>
                     </thead>
                     <tbody>
-                      {breakdown.map((b) => (
-                        <tr key={b.storeId} className="border-t border-border">
-                          <td className="px-3 py-1.5 font-medium">{b.shortName}</td>
-                          <td className="px-3 py-1.5 text-muted-foreground">{b.groupName}</td>
-                          <td className="px-3 py-1.5 text-right font-mono">{b.ordered}</td>
-                          <td className="px-3 py-1.5 text-right font-mono text-success font-medium">
-                            {b.sold}
-                          </td>
-                          <td className="px-3 py-1.5 text-right font-mono">
-                            {b.pct.toFixed(0)}%
-                          </td>
-                          <td className="px-3 py-1.5 text-right font-mono">
-                            {formatEur(b.revenue)}
-                          </td>
-                        </tr>
-                      ))}
+                      {breakdown.map((b) => {
+                        const extra = b.sold - b.ordered;
+                        return (
+                          <tr key={b.storeId} className="border-t border-border">
+                            <td className="px-3 py-1.5 font-medium">{b.shortName}</td>
+                            <td className="px-3 py-1.5 text-muted-foreground">{b.groupName}</td>
+                            <td className="px-3 py-1.5 text-right font-mono">{b.ordered}</td>
+                            <td className="px-3 py-1.5 text-right font-mono text-success font-medium">
+                              {b.sold}
+                            </td>
+                            <td
+                              className={`px-3 py-1.5 text-right font-mono ${
+                                extra > 0 ? 'text-primary font-semibold' : ''
+                              }`}
+                            >
+                              {b.pct.toFixed(0)}%
+                              {extra > 0 ? ` (+${extra})` : ''}
+                            </td>
+                            <td className="px-3 py-1.5 text-right font-mono">
+                              {formatEur(b.revenue)}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
