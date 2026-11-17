@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --radius: 0.75rem;
+  --background: oklch(97.5% 0.008 80);
+  --foreground: oklch(22% 0.02 50);
+  --card: oklch(99.5% 0.004 80);
+  --card-foreground: oklch(22% 0.02 50);
+  --primary: oklch(42% 0.12 15);
+  --primary-foreground: oklch(98% 0.01 80);
+  --secondary: oklch(94% 0.02 80);
+  --secondary-foreground: oklch(30% 0.03 50);
+  --muted: oklch(95% 0.012 80);
+  --muted-foreground: oklch(50% 0.02 60);
+  --accent: oklch(72% 0.14 65);
+  --accent-foreground: oklch(22% 0.02 50);
+  --destructive: oklch(55% 0.2 25);
+  --destructive-foreground: oklch(98% 0 0);
+  --success: oklch(52% 0.13 150);
+  --warning: oklch(68% 0.15 70);
+  --border: oklch(90% 0.015 80);
+  --input: oklch(88% 0.015 80);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --font-sans: "Karla", system-ui, -apple-system, sans-serif;
+  --font-serif: "Cormorant Garamond", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+}
