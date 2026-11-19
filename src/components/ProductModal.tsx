@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import type { AggregatedProductItem, Lang, ProductItem, StoreRecord } from '../types/retail';
 import {
@@ -27,6 +27,10 @@ export function ProductModal({
 }: ProductModalProps) {
   const dict = t(lang);
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [item?.img]);
 
   if (!item) return null;
 

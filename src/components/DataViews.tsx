@@ -226,6 +226,7 @@ export function StoresAndGroupsView({
   groups,
   stores,
   allItems,
+  isLineFiltered = false,
   lang,
   onSelectGroup,
   onSelectStore,
@@ -233,6 +234,7 @@ export function StoresAndGroupsView({
   groups: GroupRecord[];
   stores: StoreRecord[];
   allItems: ProductItem[];
+  isLineFiltered?: boolean;
   lang: Lang;
   onSelectGroup: (groupId: GroupId) => void;
   onSelectStore: (storeId: string) => void;
@@ -254,7 +256,9 @@ export function StoresAndGroupsView({
       revenue += s * item.rtl;
       wholesale += o * item.whs;
     }
-    const unmatched = gStores.reduce((sum, st) => sum + st.unmatched, 0);
+    const unmatched = isLineFiltered
+      ? 0
+      : gStores.reduce((sum, st) => sum + st.unmatched, 0);
     const totalSold = matchedSold + unmatched;
     const pct = getSellOutPct(matchedSold, ordered);
     return {
@@ -285,7 +289,11 @@ export function StoresAndGroupsView({
       revenue += s * item.rtl;
       wholesale += o * item.whs;
     }
-    const totalSold = store.soldTotal > matchedSold ? store.soldTotal : matchedSold;
+    const totalSold = isLineFiltered
+      ? matchedSold
+      : store.soldTotal > matchedSold
+        ? store.soldTotal
+        : matchedSold;
     const pct = getSellOutPct(matchedSold, ordered);
     return {
       store,

@@ -44,7 +44,8 @@ export function ImportModal({
   if (!isOpen) return null;
 
   const handleSellOutChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
     try {
       const parsed = await parseSellOutFile(file);
@@ -61,11 +62,14 @@ export function ImportModal({
       });
     } catch {
       setFeedback({ type: 'err', msg: dict.importModal.error });
+    } finally {
+      input.value = '';
     }
   };
 
   const handleOrdersChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
     try {
       const rows = await parseJoorOrdersXlsx(file);
@@ -80,6 +84,8 @@ export function ImportModal({
       });
     } catch {
       setFeedback({ type: 'err', msg: dict.importModal.error });
+    } finally {
+      input.value = '';
     }
   };
 

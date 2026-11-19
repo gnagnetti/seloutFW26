@@ -90,6 +90,7 @@ export default function App() {
   >(null);
   const [importOpen, setImportOpen] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<{ done: number; total: number } | null>(null);
+  const [galleryLimit, setGalleryLimit] = useState(200);
 
   const dict = t(lang);
 
@@ -154,18 +155,33 @@ export default function App() {
 
   const allLines = useMemo(() => {
     if (!db) return [];
-    return Array.from(new Set(db.items.map((i) => i.line))).sort();
+    const priority = [
+      'Fw 2026 - Pre Collection',
+      'Fw 2026 - Main Collection',
+      'Fw 2026 - Sfilata',
+      'Fw 2026 - Carryover',
+    ];
+    return Array.from(new Set(db.items.map((i) => i.line))).sort((a, b) => {
+      const ia = priority.indexOf(a);
+      const ib = priority.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.localeCompare(b);
+    });
   }, [db]);
+
+  // Items filtered by selected collection line across all stores
+  const lineFilteredItems = useMemo(() => {
+    if (!db) return [];
+    if (filters.line === 'all') return db.items;
+    return db.items.filter((item) => item.line === filters.line);
+  }, [db, filters.line]);
 
   // Items matching selected stores & selected collection line
   const scopedItems = useMemo(() => {
-    if (!db) return [];
-    return db.items.filter(
-      (item) =>
-        selectedStoreSet.has(item.storeId) &&
-        (filters.line === 'all' || item.line === filters.line)
-    );
-  }, [db, selectedStoreSet, filters.line]);
+    return lineFilteredItems.filter((item) => selectedStoreSet.has(item.storeId));
+  }, [lineFilteredItems, selectedStoreSet]);
 
   const unmatchedForScope = useMemo(() => {
     if (!db || filters.line !== 'all') return 0;
@@ -276,6 +292,10 @@ export default function App() {
     dict.card.colorsCount,
     dict.card.storesCount,
   ]);
+
+  useEffect(() => {
+    setGalleryLimit(200);
+  }, [filters, selectedStoreIds]);
 
   const activeScopeSummary = useMemo(() => {
     if (!db) return '';
@@ -531,8 +551,13 @@ export default function App() {
             </div>
             <p className="text-sm text-muted-foreground">
               {dict.activeScope}{' '}
-              <b className="text-foreground">{activeScopeSummary}</b> · FW 2026 ·{' '}
-              <span className="font-mono text-xs">(Sell-Out / Sell-In) × 100</span>
+              <b className="text-foreground">{activeScopeSummary}</b> ·{' '}
+              <b className="text-foreground">
+                {filters.line === 'all'
+                  ? 'FW 2026'
+                  : filters.line.replace('Fw 2026 - ', '')}
+              </b>{' '}
+              · <span className="font-mono text-xs">(Sell-Out / Sell-In) × 100</span>
             </p>
           </div>
 
@@ -545,7 +570,14 @@ export default function App() {
                 <button
                   key={line}
                   type="button"
-                  onClick={() => setFilters((f) => ({ ...f, line }))}
+                  onClick={() =>
+                    setFilters((f) => ({
+                      ...f,
+                      line,
+                      category: 'all',
+                      po: 'all',
+                    }))
+                  }
                   className={`rounded px-2.5 py-1 text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                     filters.line === line
                       ? 'bg-foreground text-background font-medium'
@@ -597,7 +629,7 @@ export default function App() {
         <StoreNavigator
           groups={db.groups}
           stores={db.stores}
-          allItems={db.items}
+          allItems={lineFilteredItems}
           selectedStoreIds={selectedStoreIds}
           onChangeSelectedStoreIds={setSelectedStoreIds}
           activeGroupTab={activeGroupTab}
@@ -605,12 +637,13 @@ export default function App() {
           customGroups={customGroups}
           onSaveCustomGroup={handleSaveCustomGroup}
           onDeleteCustomGroup={handleDeleteCustomGroup}
+          isLineFiltered={filters.line !== 'all'}
           lang={lang}
         />
 
         {/* 6 KPI Summary Cards */}
         <KpiStrip
-          items={kpiItems}
+          items={hasItemFilter ? (filters.aggregateModels ? displayedItems : kpiItems) : scopedItems}
           unmatchedSold={hasItemFilter ? 0 : unmatchedForScope}
           activeStoreCount={selectedStoreIds.length}
           lang={lang}
@@ -778,21 +811,34 @@ export default function App() {
                 </button>
               </div>
             ) : viewMode === 'gallery' ? (
-              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {displayedItems.slice(0, 200).map((item, idx) => (
-                  <ProductCard
-                    key={`${item.storeId}-${item.name}-${item.cc}-${idx}`}
-                    item={item}
-                    showStore={selectedStoreIds.length > 1 || filters.aggregateModels}
-                    lang={lang}
-                    onSelect={setSelectedProduct}
-                  />
-                ))}
-              </section>
+              <div className="space-y-4">
+                <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {displayedItems.slice(0, galleryLimit).map((item, idx) => (
+                    <ProductCard
+                      key={`${item.storeId}-${item.name}-${item.cc}-${idx}`}
+                      item={item}
+                      showStore={selectedStoreIds.length > 1 || filters.aggregateModels}
+                      lang={lang}
+                      onSelect={setSelectedProduct}
+                    />
+                  ))}
+                </section>
+                {displayedItems.length > galleryLimit && (
+                  <div className="flex items-center justify-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setGalleryLimit((n) => n + 200)}
+                      className="rounded-md border border-border bg-card px-4 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer tabular-nums"
+                    >
+                      +{Math.min(200, displayedItems.length - galleryLimit)} ({displayedItems.length - galleryLimit} rimanenti)
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <TableView
                 items={displayedItems}
-                showStore={selectedStoreIds.length > 1}
+                showStore={selectedStoreIds.length > 1 || filters.aggregateModels}
                 lang={lang}
                 onSelect={setSelectedProduct}
               />
@@ -819,7 +865,8 @@ export default function App() {
           <StoresAndGroupsView
             groups={db.groups}
             stores={db.stores}
-            allItems={db.items}
+            allItems={lineFilteredItems}
+            isLineFiltered={filters.line !== 'all'}
             lang={lang}
             onSelectGroup={(groupId) => {
               setActiveGroupTab(groupId);

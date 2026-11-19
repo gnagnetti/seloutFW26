@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AggregatedProductItem, Lang, ProductItem } from '../types/retail';
 import {
   formatEur,
@@ -27,6 +27,10 @@ const TIER_STYLES = {
 export function ProductCard({ item, showStore, lang, onSelect }: ProductCardProps) {
   const dict = t(lang);
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [item.img]);
 
   const ordered = getOrdered(item);
   const sold = getSold(item);

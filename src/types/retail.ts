@@ -1,6 +1,6 @@
 export type Lang = 'it' | 'ru';
 
-export type GroupId = 'bosco' | 'irina' | 'smykov' | 'pioneer';
+export type GroupId = 'bosco' | 'irina' | 'smykov' | 'pioneer' | 'astana';
 
 export interface GroupRecord {
   id: GroupId;

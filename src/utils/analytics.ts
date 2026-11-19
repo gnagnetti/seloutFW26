@@ -514,6 +514,7 @@ export function parseSellOutRows(rawRows: unknown[][]): ParsedSellOutLine[] {
   let sizeIdx = -1;
   let qtyIdx = -1;
   let silIdx = -1;
+  let descIdx = -1;
 
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
     const cols = rows[i].map((c) => c.toLowerCase());
@@ -580,6 +581,14 @@ export function parseSellOutRows(rawRows: unknown[][]): ParsedSellOutLine[] {
           c.includes('nome') ||
           c.includes('descriz')
       );
+      descIdx = cols.findIndex(
+        (c) =>
+          c.includes('характер') ||
+          c.includes('описан') ||
+          c.includes('characteristic') ||
+          c.includes('variant') ||
+          c.includes('специфик')
+      );
       break;
     }
   }
@@ -602,7 +611,35 @@ export function parseSellOutRows(rawRows: unknown[][]): ParsedSellOutLine[] {
         continue;
       }
       const rawColor = colorIdx !== -1 ? r[colorIdx] || '' : '';
-      const rawSize = sizeIdx !== -1 ? r[sizeIdx] || 'U' : 'U';
+      const rawSize = sizeIdx !== -1 ? r[sizeIdx] || '' : '';
+      let colorCode = extractColorCode(rawColor);
+      let size = rawSize ? normalizeSizeToken(rawSize) : '';
+      let silhouette = silIdx !== -1 ? r[silIdx] : undefined;
+
+      // Fallback to Характеристика/variant column or remaining descriptive cells when size/color columns are packed
+      if ((!size || !colorCode) && (descIdx !== -1 || (colorIdx === -1 && sizeIdx === -1))) {
+        const probeText =
+          descIdx !== -1
+            ? r[descIdx] || ''
+            : r
+                .filter((_, idx) => idx !== styleIdx && idx !== qtyIdx && idx !== colorIdx && idx !== sizeIdx)
+                .join(', ');
+        if (probeText) {
+          const parts = probeText.split(',').map((p) => p.trim()).filter(Boolean);
+          for (const p of parts) {
+            if (!size && isLikelySize(p)) {
+              size = normalizeSizeToken(p);
+            } else if (!colorCode) {
+              const cc = extractColorCode(p);
+              if (cc) colorCode = cc;
+            }
+          }
+          if (!silhouette && parts.length > 0 && !isLikelySize(parts[0]) && !extractColorCode(parts[0])) {
+            silhouette = parts[0];
+          }
+        }
+      }
+
       const qty =
         qtyIdx !== -1
           ? Math.round(parseNum(r[qtyIdx], r[qtyIdx] === '' ? 0 : 0))
@@ -610,10 +647,10 @@ export function parseSellOutRows(rawRows: unknown[][]): ParsedSellOutLine[] {
       if (qty <= 0) continue;
       out.push({
         style,
-        colorCode: extractColorCode(rawColor),
-        size: normalizeSizeToken(rawSize),
+        colorCode,
+        size: size || 'U',
         qty,
-        silhouette: silIdx !== -1 ? r[silIdx] : undefined,
+        silhouette,
       });
     }
     if (out.length > 0) return out;

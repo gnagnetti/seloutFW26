@@ -1,10 +1,10 @@
-import type { Lang, ProductItem } from '../types/retail';
+import type { AggregatedProductItem, Lang, ProductItem } from '../types/retail';
 import { formatEur, getOrdered, getSellOutPct, getSold, getTier } from '../utils/analytics';
 import { t } from '../utils/i18n';
 import { RadialGauge } from './RadialGauge';
 
 interface KpiStripProps {
-  items: ProductItem[];
+  items: (ProductItem | AggregatedProductItem)[];
   unmatchedSold: number;
   activeStoreCount: number;
   lang: Lang;
@@ -27,9 +27,18 @@ export function KpiStrip({ items, unmatchedSold, activeStoreCount, lang }: KpiSt
     const sld = getSold(item);
     totalOrdered += ord;
     totalMatchedSold += sld;
-    actualRevenue += sld * item.rtl;
-    potentialRevenue += ord * item.rtl;
-    wholesaleValue += ord * item.whs;
+    actualRevenue +=
+      'realizedRevenue' in item && item.realizedRevenue !== undefined
+        ? item.realizedRevenue
+        : sld * item.rtl;
+    potentialRevenue +=
+      'potentialRevenue' in item && item.potentialRevenue !== undefined
+        ? item.potentialRevenue
+        : ord * item.rtl;
+    wholesaleValue +=
+      'wholesaleValue' in item && item.wholesaleValue !== undefined
+        ? item.wholesaleValue
+        : ord * item.whs;
 
     const tier = getTier(item);
     if (tier === 'lead' || tier === 'out') leadersCount++;

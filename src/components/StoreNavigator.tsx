@@ -23,6 +23,7 @@ interface StoreNavigatorProps {
   customGroups: CustomStoreGroup[];
   onSaveCustomGroup: (name: string, storeIds: string[]) => void;
   onDeleteCustomGroup: (id: string) => void;
+  isLineFiltered?: boolean;
   lang: Lang;
 }
 
@@ -37,6 +38,7 @@ export function StoreNavigator({
   customGroups,
   onSaveCustomGroup,
   onDeleteCustomGroup,
+  isLineFiltered = false,
   lang,
 }: StoreNavigatorProps) {
   const dict = t(lang);
@@ -301,7 +303,11 @@ export function StoreNavigator({
       {/* Store Cards Grid */}
       <div
         className={`mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 ${
-          visibleStores.length > 7 ? 'lg:grid-cols-5' : 'lg:grid-cols-7'
+          visibleStores.length > 15
+            ? 'lg:grid-cols-4'
+            : visibleStores.length > 7
+              ? 'lg:grid-cols-5'
+              : 'lg:grid-cols-7'
         }`}
       >
         {visibleStores.map((store, idx) => {
@@ -362,7 +368,7 @@ export function StoreNavigator({
         })}
       </div>
 
-      {singleSelectedStore && singleSelectedStore.unmatched > 0 && (
+      {!isLineFiltered && singleSelectedStore && singleSelectedStore.unmatched > 0 && (
         <p className="mt-3 text-xs text-muted-foreground">
           {singleSelectedStore.code !== 'NO-ORDER'
             ? `${singleSelectedStore.unmatched} ${dict.unmatchedNote}`
